@@ -29,7 +29,7 @@ global_chat_id = None
 game_started = False
 
 final_cat = False
-
+formula_end_sum = 0
 
 # cтарт в личке
 @bot.message_handler(commands=['start'])
@@ -700,9 +700,10 @@ def adjust_event_count(call):
         final_events = event_count
         world_info[global_chat_id].append(final_events)
         markup = types.InlineKeyboardMarkup()
-        start_cycle = types.InlineKeyboardButton("⬆️", callback_data="start_game_cycle")
+        start_cycle = types.InlineKeyboardButton("Продолжить", callback_data="start_game_cycle")
         markup.add(start_cycle)
         bot.send_message(call.message.chat.id, f'*Игра началась!✨🎮*\n\n_Сеттинг мира: {world_info[global_chat_id][0]}_\n_Ваше приключение: {world_info[global_chat_id][1]}_', parse_mode='Markdown', reply_markup=markup)
+        global game_started
         game_started = True
         return
     
@@ -715,12 +716,11 @@ def adjust_event_count(call):
     markup.add(down_button)
 
     bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=f'Настройте количество игровых событий: {event_count}', reply_markup=markup)
-    
-formula_end_sum = 0
 
 # Начало событий
 @bot.callback_query_handler(func=lambda call: call.data == "start_game_cycle")
 def main_game(call):
+    create = bot.send_sticker(global_chat_id, STICKERS_API[4])
     count = world_info[global_chat_id][2]
     adventure = world_info[global_chat_id][1]
 
@@ -775,6 +775,7 @@ def main_game(call):
         markup.add(button)
 
     bot.send_message(call.message.chat.id, first_adv, parse_mode="Markdown", reply_markup=markup)
+    bot.delete_message(global_chat_id, create.message_id)
 
 # Подтвержение варианта действия
 @bot.callback_query_handler(func=lambda call: call.data.startswith("confirm_choice:"))
@@ -876,7 +877,7 @@ def throw_dice(call):
 
 
     dice1, dice2, test_result = dice(skills, event_dict[event_idx][1], event_dict[event_idx][0])
-    bot.send_message(call.message.chat.id, f'*🎲 Значения на кубиках: {dice1}, {dice2}*\n\nРезультат события: {test_result}')
+    bot.send_message(call.message.chat.id, f'*🎲 Значения на кубиках: {dice1}, {dice2}*\n\nРезультат события: {test_result}', parse_mode='Markdown')
     global formula_end_sum
     if test_result == 'неудача':
         formula_end_sum += event_dict[event_idx][0] * 0.2
@@ -884,28 +885,53 @@ def throw_dice(call):
         formula_end_sum += event_dict[event_idx][0]
     else:
         formula_end_sum = -1
+
+    print(formula_end_sum)
     bot.delete_message(call.message.chat.id, call.message.message_id)
 
-    basic_generation(call.message.chat.id, game_context, event_idx, character_name, test_result, formula_end_sum, dead=False)
+    global game_context
 
-#     game_cycle(call.message.chat.id, game_context, event_idx, character_name, test_result)
+    for i in range(2, world_info[global_chat_id][-1]):
+        if formula_end_sum != -1:
+            game_context, event_idx, character_name, test_result, formula_end_sum = basic_generation(call.message.chat.id, game_context, event_idx, character_name, test_result, formula_end_sum)
+            continue
+        else:
+            prompt = f"Это финальное событие, после него новых событий нет. Действие {event_idx} персонажа {character_name} привело к его смерти. Используй эмодзи."
+            game_context[global_chat_id].append({"role": "user", "content": prompt})
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=game_context[global_chat_id],
+                max_tokens=1000
+            )
+            finall = response.choices[0].message.content
+            maarkup = types.InlineKeyboardMarkup(row_width=1)
+            back_back = types.InlineKeyboardButton("Завершить игру", callback_data='end')
+            maarkup.add(back_back)
+            bot.send_message(global_chat_id, finall, parse_mode='Markdown', reply_markup=maarkup)            
+            return
 
+    create = bot.send_sticker(global_chat_id, STICKERS_API[4])
+    ending = final_choise(formula_end_sum, world_info[call.message.chat.id][-1])
+    prompt = f"Это финальное событие, после него новых событий нет. Предыдущие выборы привели к {ending}. Кратко опиши концовку, как события повлияли на каждого персонажа и в каком состоянии находится мир"
+    game_context[global_chat_id].append({"role": "user", "content": prompt})
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=game_context[global_chat_id],
+        max_tokens=1000
+    )
+    finall_a = response.choices[0].message.content
 
-# # def game_cycle(chat_id, initial_game_context, initial_event_idx, initial_character_name, initial_test_result):
-# #     game_context = initial_game_context
-# #     event_idx = initial_event_idx
-# #     character_name = initial_character_name
-# #     test_result = initial_test_result
-# #     max_events = world_info[chat_id][-1]  
-# #     global formula_end_sum
-# #     formula_end_sum = 0  
+    temp_picture(finall_a)
 
-# #     for i in range(2, max_events):
-# #         dead = (formula_end_sum == -1)
+    with open(PATH + 'game_assets/temp.png', 'rb') as image_file:
+        bot.send_photo(call.message.chat.id, image_file)
 
-# #         game_context, event_idx, character_name, test_result, formula_end_sum = basic_generation(
-# #             chat_id, game_context, event_idx, character_name, test_result, formula_end_sum, dead
-# #         )
+    maarkup = types.InlineKeyboardMarkup(row_width=1)
+    back_back = types.InlineKeyboardButton("Завершить игру", callback_data='end')
+    maarkup.add(back_back)
+
+    bot.send_message(global_chat_id, finall_a, parse_mode='Markdown', reply_markup=maarkup)
+    bot.delete_message(global_chat_id, create.message_id)
 
 
     
@@ -919,168 +945,155 @@ def throw_dice(call):
 
 
 
-def basic_generation(chat_id, game_context, event_idx, character_name, test_result, formula_end_sum, dead=False):
-    if dead == False:
-        create = bot.send_sticker(global_chat_id, STICKERS_API[4])
-        gen_prompt = f'Выбранное действие: {event_idx}, персонаж: {character_name}, результат: {test_result}'
-        game_context[chat_id].append({"role": "user", "content": gen_prompt})
-        response = client.chat.completions.create(
+def basic_generation(chat_id, game_context, event_idx, character_name, test_result, formula_end_sum):
+    create = bot.send_sticker(global_chat_id, STICKERS_API[4])
+    gen_prompt = f'Выбранное действие: {event_idx}, персонаж: {character_name}, результат: {test_result}'
+    game_context[chat_id].append({"role": "user", "content": gen_prompt})
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=game_context[chat_id],
+        max_tokens = 1000
+    )
+    action = response.choices[0].message.content
+    game_context[global_chat_id].append({"role": "assistant", "content": action})
+    choises_dict = 'Верни из этого описания события в формате словаря все варианты действий. Напиши только код(без маркдауна(```py), только словарь). Формат словаря: ключ - номер варианта действия(цифрой), значение - список, где первый элемент - сложность события, а второй - характеристика, которая используется'
+
+    game_context[global_chat_id].append({"role": "user", "content": choises_dict})
+
+    response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=game_context[chat_id],
-            max_tokens = 1000
         )
-        action = response.choices[0].message.content
-        game_context[global_chat_id].append({"role": "assistant", "content": action})
-        bot.delete_message(global_chat_id, create.message_id)
-        choises_dict = 'Верни из этого описания события в формате словаря все варианты действий. Напиши только код(без маркдауна(```py), только словарь). Формат словаря: ключ - номер варианта действия(цифрой), значение - список, где первый элемент - сложность события, а второй - характеристика, которая используется'
+    
+    global event_dict
 
-        game_context[global_chat_id].append({"role": "user", "content": choises_dict})
+    event_dict = eval(response.choices[0].message.content)
+    game_context[global_chat_id].append({"role": "assistant", "content": str(event_dict)})
 
-        response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=game_context[chat_id],
-            )
+    event_dict = {int(key): value for key, value in event_dict.items()}
+
+    print(event_dict)
+
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    for idx, (name, details) in enumerate(event_dict.items()):
+        button = types.InlineKeyboardButton(name, callback_data=f"confirm_choice:{idx}")
+        markup.add(button)
+
+    bot.send_message(chat_id, action, parse_mode="Markdown", reply_markup=markup)
+    bot.delete_message(global_chat_id, create.message_id)
+
+    # Подтвержение варианта действия
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("confirm_choice:"))
+    def confirm_choice(call):
+        event_idx = int(call.data.split(':')[1])
+        event_names = list(event_dict.keys())
+        event_name = event_names[event_idx]
+        difficulty, skill = event_dict[event_name]
+
+        confirm_markup = types.InlineKeyboardMarkup()
+        cancel_button = types.InlineKeyboardButton("Назад", callback_data="cancel_choice")
+        select_button = types.InlineKeyboardButton("Выбрать", callback_data=f"choice_selected:{event_idx}")
+        confirm_markup.add(cancel_button, select_button, row_width=2)
+
+        bot.send_message(call.message.chat.id, f"Вы уверены, что хотите выбрать вариант '{event_name}'?\n\n*Сложность:* {difficulty}\n*Характеристика:* {skill}", reply_markup=confirm_markup, parse_mode="Markdown")
+
+    # Отмена
+    @bot.callback_query_handler(func=lambda call: call.data == "cancel_choice")
+    def cancel_choice(call):
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+
+    # Выбор персонажа
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("choice_selected:"))
+    def select_choice(call):
+        event_idx = int(call.data.split(':')[1])
         
-        global event_dict
+        
+        characters_in_game = characters[global_chat_id]
+        
+        character_markup = types.InlineKeyboardMarkup(row_width=2)
+        for user_id, character_info in characters_in_game.items():
+            character_name = character_info[0]
+            character_button = types.InlineKeyboardButton(character_name, callback_data=f"perform_action:{event_idx}:{user_id}")
+            character_markup.add(character_button)
 
-        event_dict = eval(response.choices[0].message.content)
-        game_context[global_chat_id].append({"role": "assistant", "content": str(event_dict)})
+        bot.send_message(call.message.chat.id, "*Выберите персонажа для совершения действия:*", reply_markup=character_markup)
+        bot.delete_message(call.message.chat.id, call.message.message_id)
 
-        event_dict = {int(key): value for key, value in event_dict.items()}
+    # Детали персонажа
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("perform_action:"))
+    def show_character_info(call):
+        _, event_idx, user_id = call.data.split(':')
+        event_idx = int(event_idx)
+        user_id = int(user_id)
 
-        print(event_dict)
+        character_info = characters[global_chat_id][user_id]
+        character_name = character_info[0]
+        race = character_info[1]
+        skills = character_info[3]
+        photo = character_info[-1]
 
+        formatted_skills = "\n".join([f"*{key.capitalize()}*: {value}" for key, value in skills.items()])
+        character_message = (
+            f"*Имя персонажа:* {character_name}\n\n"
+            f"*Раса:* {race}\n\n"
+            f"*Характеристики:*\n\n{formatted_skills}"
+        )
+
+        character_markup = types.InlineKeyboardMarkup(row_width=2)
+        back_button = types.InlineKeyboardButton("Назад", callback_data=f"cancel_character_info:{event_idx}")
+        select_button = types.InlineKeyboardButton("Выбрать", callback_data=f"finalize_choice:{event_idx}:{user_id}")
+        character_markup.add(back_button, select_button)
+
+        with open(photo, 'rb') as image_file:
+                bot.send_photo(
+                    call.message.chat.id, 
+                    photo=image_file, 
+                    caption=character_message, 
+                    parse_mode='Markdown',
+                    reply_markup=character_markup 
+                )
+
+    # отмена
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("cancel_character_info:"))
+    def cancel_character_info(call):
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+
+    # бросок кубиков
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("finalize_choice:"))
+    def throw_dice(call):
+        _, event_idx, user_id = call.data.split(':')
+        event_idx = int(event_idx)
+        user_id = int(user_id)
         markup = types.InlineKeyboardMarkup(row_width=2)
-        for idx, (name, details) in enumerate(event_dict.items()):
-            button = types.InlineKeyboardButton(name, callback_data=f"confirm_choice:{idx}")
-            markup.add(button)
+        dice = types.InlineKeyboardButton("Кинуть кубики 🎲", callback_data=f'dice:{event_idx}:{user_id}')
+        markup.add(dice)
+        bot.send_message(call.message.chat.id, 'Узнайте итог события по кнопке внизу!', reply_markup=markup)
+        bot.delete_message(call.message.chat.id, call.message.message_id)
 
-        bot.send_message(chat_id, action, parse_mode="Markdown", reply_markup=markup)
+    # итоги события
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("dice:"))
+    def throw_dice(call):
+        global game_context, event_idx, character_name, test_result, formula_end_sum
+        _, event_idx, user_id = call.data.split(':')
+        event_idx = int(event_idx) + 1
+        user_id = int(user_id)
+        character_info = characters[global_chat_id][user_id]
+        character_name = character_info[0]
+        skills = character_info[3]
 
-        # Подтвержение варианта действия
-        @bot.callback_query_handler(func=lambda call: call.data.startswith("confirm_choice:"))
-        def confirm_choice(call):
-            event_idx = int(call.data.split(':')[1])
-            event_names = list(event_dict.keys())
-            event_name = event_names[event_idx]
-            difficulty, skill = event_dict[event_name]
+        dice1, dice2, test_result = dice(skills, event_dict[event_idx][1], event_dict[event_idx][0])
+        bot.send_message(call.message.chat.id, f'*🎲 Значения на кубиках: {dice1}, {dice2}*\n\nРезультат события: {test_result}')
+        bot.delete_message(call.message.chat.id, call.message.message_id)
 
-            confirm_markup = types.InlineKeyboardMarkup()
-            cancel_button = types.InlineKeyboardButton("Назад", callback_data="cancel_choice")
-            select_button = types.InlineKeyboardButton("Выбрать", callback_data=f"choice_selected:{event_idx}")
-            confirm_markup.add(cancel_button, select_button, row_width=2)
-
-            bot.send_message(call.message.chat.id, f"Вы уверены, что хотите выбрать вариант '{event_name}'?\n\n*Сложность:* {difficulty}\n*Характеристика:* {skill}", reply_markup=confirm_markup, parse_mode="Markdown")
-
-        # Отмена
-        @bot.callback_query_handler(func=lambda call: call.data == "cancel_choice")
-        def cancel_choice(call):
-            bot.delete_message(call.message.chat.id, call.message.message_id)
-
-        # Выбор персонажа
-        @bot.callback_query_handler(func=lambda call: call.data.startswith("choice_selected:"))
-        def select_choice(call):
-            event_idx = int(call.data.split(':')[1])
+        if test_result == 'неудача':
+            formula_end_sum += event_dict[event_idx][0] * 0.2
+        elif test_result == 'успех':
+            formula_end_sum += event_dict[event_idx][0]
+        else:
+            formula_end_sum = -1
             
-            
-            characters_in_game = characters[global_chat_id]
-            
-            character_markup = types.InlineKeyboardMarkup(row_width=2)
-            for user_id, character_info in characters_in_game.items():
-                character_name = character_info[0]
-                character_button = types.InlineKeyboardButton(character_name, callback_data=f"perform_action:{event_idx}:{user_id}")
-                character_markup.add(character_button)
-
-            bot.send_message(call.message.chat.id, "*Выберите персонажа для совершения действия:*", reply_markup=character_markup)
-            bot.delete_message(call.message.chat.id, call.message.message_id)
-
-        # Детали персонажа
-        @bot.callback_query_handler(func=lambda call: call.data.startswith("perform_action:"))
-        def show_character_info(call):
-            _, event_idx, user_id = call.data.split(':')
-            event_idx = int(event_idx)
-            user_id = int(user_id)
-
-            character_info = characters[global_chat_id][user_id]
-            character_name = character_info[0]
-            race = character_info[1]
-            skills = character_info[3]
-            photo = character_info[-1]
-
-            formatted_skills = "\n".join([f"*{key.capitalize()}*: {value}" for key, value in skills.items()])
-            character_message = (
-                f"*Имя персонажа:* {character_name}\n\n"
-                f"*Раса:* {race}\n\n"
-                f"*Характеристики:*\n\n{formatted_skills}"
-            )
-
-            character_markup = types.InlineKeyboardMarkup(row_width=2)
-            back_button = types.InlineKeyboardButton("Назад", callback_data=f"cancel_character_info:{event_idx}")
-            select_button = types.InlineKeyboardButton("Выбрать", callback_data=f"finalize_choice:{event_idx}:{user_id}")
-            character_markup.add(back_button, select_button)
-
-            with open(photo, 'rb') as image_file:
-                    bot.send_photo(
-                        call.message.chat.id, 
-                        photo=image_file, 
-                        caption=character_message, 
-                        parse_mode='Markdown',
-                        reply_markup=character_markup 
-                    )
-
-        # отмена
-        @bot.callback_query_handler(func=lambda call: call.data.startswith("cancel_character_info:"))
-        def cancel_character_info(call):
-            bot.delete_message(call.message.chat.id, call.message.message_id)
-
-        # бросок кубиков
-        @bot.callback_query_handler(func=lambda call: call.data.startswith("finalize_choice:"))
-        def throw_dice(call):
-            _, event_idx, user_id = call.data.split(':')
-            event_idx = int(event_idx)
-            user_id = int(user_id)
-            markup = types.InlineKeyboardMarkup(row_width=2)
-            dice = types.InlineKeyboardButton("Кинуть кубики 🎲", callback_data=f'dice:{event_idx}:{user_id}')
-            markup.add(dice)
-            bot.send_message(call.message.chat.id, 'Узнайте итог события по кнопке внизу!', reply_markup=markup)
-            bot.delete_message(call.message.chat.id, call.message.message_id)
-
-        # итоги события
-        @bot.callback_query_handler(func=lambda call: call.data.startswith("dice:"))
-        def throw_dice(call):
-            _, event_idx, user_id = call.data.split(':')
-            event_idx = int(event_idx) + 1
-            user_id = int(user_id)
-            character_info = characters[global_chat_id][user_id]
-            character_name = character_info[0]
-            skills = character_info[3]
-
-            dice1, dice2, test_result = dice(skills, event_dict[event_idx][1], event_dict[event_idx][0])
-            bot.send_message(call.message.chat.id, f'*🎲 Значения на кубиках: {dice1}, {dice2}*\n\nРезультат события: {test_result}')
-            bot.delete_message(call.message.chat.id, call.message.message_id)
-
-            if test_result == 'неудача':
-                formula_end_sum += event_dict[event_idx][0] * 0.2
-            elif test_result == 'успех':
-                formula_end_sum += event_dict[event_idx][0]
-            else:
-                formula_end_sum = -1
-                
-
-            return game_context, event_idx, character_name, test_result, formula_end_sum
-        
-    else:
-        ending = final_choise(formula_end_sum, world_info[chat_id][-1])
-        prompt = f"Это финальное событие, после него новых событий нет. Предыдущие выборы привели к {ending}"
-        game_context[global_chat_id].append({"role": "user", "content": prompt})
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=game_context[global_chat_id],
-            max_tokens=1000
-        )
-        finall = eval(response.choices[0].message.content)
-
-        bot.send_message(global_chat_id, finall)
+        return game_context, event_idx, character_name, test_result, formula_end_sum
+    return game_context, event_idx, character_name, test_result, formula_end_sum
 
 
 

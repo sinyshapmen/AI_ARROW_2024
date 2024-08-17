@@ -4,7 +4,7 @@ import requests
 import base64
 import io
 from PIL import Image
-from config import PATH 
+from config import PATH, FUSION_BRAIN_API, FUSION_BRAIN_API_SECRET, OPENAI_API_KEY_RU
 from openai import OpenAI
 
 
@@ -54,7 +54,7 @@ class Text2ImageAPI:
             time.sleep(delay)
 
 def dalle_picture_save(file_name: str, prompt: str):
-    client = OpenAI(api_key='sk-mzsvFLLXvFVprwjAgRqlRNEFijS5ATwc', base_url="https://api.proxyapi.ru/openai/v1")
+    client = OpenAI(api_key=OPENAI_API_KEY_RU, base_url="https://api.proxyapi.ru/openai/v1")
 
     if file_name == 'temp':
         response = client.images.generate(
@@ -83,7 +83,7 @@ def dalle_picture_save(file_name: str, prompt: str):
 
 # генерация изображений во временный файл   
 def temp_picture(prompt: str):
-    api = Text2ImageAPI('https://api-key.fusionbrain.ai/', '60BE7FDCC467379AC029C2E62A5E8C51', 'E6DC282C0F845F542D8AEA40F3F3583E')
+    api = Text2ImageAPI('https://api-key.fusionbrain.ai/', FUSION_BRAIN_API, FUSION_BRAIN_API_SECRET)
     model_id = api.get_model()
     uuid = api.generate(prompt, model_id)
     images = api.check_generation(uuid)
@@ -111,7 +111,7 @@ def rus_to_eng(text):
 
 # # генерация изображений в постоянный файл
 def save_picture(name: str, prompt: str):
-    api = Text2ImageAPI('https://api-key.fusionbrain.ai/', '60BE7FDCC467379AC029C2E62A5E8C51', 'E6DC282C0F845F542D8AEA40F3F3583E')
+    api = Text2ImageAPI('https://api-key.fusionbrain.ai/', FUSION_BRAIN_API, FUSION_BRAIN_API_SECRET)
     model_id = api.get_model()
     uuid = api.generate(prompt, model_id)
     images = api.check_generation(uuid)
