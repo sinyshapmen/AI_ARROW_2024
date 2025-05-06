@@ -18,3 +18,5 @@
 
 ### There are 5 unique endings (excluding death scenarios)
 The ending is calculated using a formula based on the difficulty and outcome of actions
+
+## [🖥 Presentation](https://github.com/sinyshapmen/AI_ARROW_2024/blob/main/dndbot-prez.pptx)
